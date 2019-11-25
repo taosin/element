@@ -1,59 +1,56 @@
+<template>
+  <div
+    class="el-tab-pane"
+    v-if="(!lazy || loaded) || active"
+    v-show="active"
+    role="tabpanel"
+    :aria-hidden="!active"
+    :id="`pane-${paneName}`"
+    :aria-labelledby="`tab-${paneName}`"
+  >
+    <slot></slot>
+  </div>
+</template>
 <script>
-  module.exports = {
-    name: 'el-tab-pane',
+  export default {
+    name: 'ElTabPane',
+
+    componentName: 'ElTabPane',
 
     props: {
-      label: {
-        type: String,
-        required: true
-      },
-      name: String
+      label: String,
+      labelContent: Function,
+      name: String,
+      closable: Boolean,
+      disabled: Boolean,
+      lazy: Boolean
     },
 
     data() {
       return {
-        counter: 0,
-        transition: '',
-        paneStyle: {
-          position: 'relative'
-        },
-        key: ''
+        index: null,
+        loaded: false
       };
     },
 
-    created() {
-      if (!this.key) {
-        this.key = this.$parent.$children.indexOf(this) + 1 + '';
-      }
-    },
-
     computed: {
-      show() {
-        return this.$parent.currentName === this.key;
+      isClosable() {
+        return this.closable || this.$parent.closable;
+      },
+      active() {
+        const active = this.$parent.currentName === (this.name || this.index);
+        if (active) {
+          this.loaded = true;
+        }
+        return active;
+      },
+      paneName() {
+        return this.name || this.index;
       }
     },
 
-    watch: {
-      name: {
-        immediate: true,
-        handler(val) {
-          this.key = val;
-        }
-      },
-      '$parent.currentName'(newValue, oldValue) {
-        if (this.key === newValue) {
-          this.transition = newValue > oldValue ? 'slideInRight' : 'slideInLeft';
-        }
-        if (this.key === oldValue) {
-          this.transition = oldValue > newValue ? 'slideInRight' : 'slideInLeft';
-        }
-      }
+    updated() {
+      this.$parent.$emit('tab-nav-update');
     }
   };
 </script>
-
-<template>
-  <div class="el-tab-pane" v-if="show">
-    <slot></slot>
-  </div>
-</template>

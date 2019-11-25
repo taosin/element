@@ -3,8 +3,12 @@
     @mouseenter="hoverItem"
     @click.stop="selectOptionClick"
     class="el-select-dropdown__item"
-    v-show="queryPassed"
-    :class="{ 'selected': itemSelected, 'is-disabled': disabled, 'hover': parent.hoverIndex === index }">
+    v-show="visible"
+    :class="{
+      'selected': itemSelected,
+      'is-disabled': disabled || groupDisabled || limitReached,
+      'hover': hover
+    }">
     <slot>
       <span>{{ currentLabel }}</span>
     </slot>
@@ -12,24 +16,24 @@
 </template>
 
 <script type="text/babel">
-  import emitter from 'main/mixins/emitter';
+  import Emitter from 'element-ui/src/mixins/emitter';
+  import { getValueByPath, escapeRegexpString } from 'element-ui/src/utils/util';
 
   export default {
-    mixins: [emitter],
+    mixins: [Emitter],
 
-    name: 'el-option',
+    name: 'ElOption',
 
-    componentName: 'option',
+    componentName: 'ElOption',
+
+    inject: ['select'],
 
     props: {
       value: {
         required: true
       },
       label: [String, Number],
-      selected: {
-        type: Boolean,
-        default: false
-      },
+      created: Boolean,
       disabled: {
         type: Boolean,
         default: false
@@ -39,91 +43,121 @@
     data() {
       return {
         index: -1,
-        queryPassed: true,
+        groupDisabled: false,
+        visible: true,
         hitState: false,
-        currentLabel: this.label
+        hover: false
       };
     },
 
     computed: {
-      parent() {
-        let result = this.$parent;
-        while (!result.isSelect) {
-          result = result.$parent;
-        }
-        return result;
+      isObject() {
+        return Object.prototype.toString.call(this.value).toLowerCase() === '[object object]';
+      },
+
+      currentLabel() {
+        return this.label || (this.isObject ? '' : this.value);
+      },
+
+      currentValue() {
+        return this.value || this.label || '';
       },
 
       itemSelected() {
-        if (Object.prototype.toString.call(this.parent.selected) === '[object Object]') {
-          return this === this.parent.selected;
-        } else if (Array.isArray(this.parent.selected)) {
-          return this.parent.value.indexOf(this.value) > -1;
+        if (!this.select.multiple) {
+          return this.isEqual(this.value, this.select.value);
+        } else {
+          return this.contains(this.select.value, this.value);
         }
       },
 
-      currentSelected() {
-        return this.selected || (this.parent.multiple ? this.parent.value.indexOf(this.value) > -1 : this.parent.value === this.value);
+      limitReached() {
+        if (this.select.multiple) {
+          return !this.itemSelected &&
+            (this.select.value || []).length >= this.select.multipleLimit &&
+            this.select.multipleLimit > 0;
+        } else {
+          return false;
+        }
       }
     },
 
     watch: {
-      currentSelected(val) {
-        if (val === true) {
-          this.dispatch('select', 'addOptionToValue', this);
+      currentLabel() {
+        if (!this.created && !this.select.remote) this.dispatch('ElSelect', 'setSelected');
+      },
+      value(val, oldVal) {
+        const { remote, valueKey } = this.select;
+        if (!this.created && !remote) {
+          if (valueKey && typeof val === 'object' && typeof oldVal === 'object' && val[valueKey] === oldVal[valueKey]) {
+            return;
+          }
+          this.dispatch('ElSelect', 'setSelected');
         }
       }
     },
 
     methods: {
-      disableOptions() {
-        this.disabled = true;
+      isEqual(a, b) {
+        if (!this.isObject) {
+          return a === b;
+        } else {
+          const valueKey = this.select.valueKey;
+          return getValueByPath(a, valueKey) === getValueByPath(b, valueKey);
+        }
+      },
+
+      contains(arr = [], target) {
+        if (!this.isObject) {
+          return arr && arr.indexOf(target) > -1;
+        } else {
+          const valueKey = this.select.valueKey;
+          return arr && arr.some(item => {
+            return getValueByPath(item, valueKey) === getValueByPath(target, valueKey);
+          });
+        }
+      },
+
+      handleGroupDisabled(val) {
+        this.groupDisabled = val;
       },
 
       hoverItem() {
-        if (!this.disabled) {
-          this.parent.hoverIndex = this.parent.options.indexOf(this);
+        if (!this.disabled && !this.groupDisabled) {
+          this.select.hoverIndex = this.select.options.indexOf(this);
         }
       },
 
       selectOptionClick() {
-        if (this.disabled !== true) {
-          this.dispatch('select', 'handleOptionClick', this);
+        if (this.disabled !== true && this.groupDisabled !== true) {
+          this.dispatch('ElSelect', 'handleOptionClick', [this, true]);
         }
       },
 
       queryChange(query) {
-        this.queryPassed = new RegExp(query, 'i').test(this.currentLabel);
-        if (!this.queryPassed) {
-          this.parent.filteredOptionsCount--;
+        this.visible = new RegExp(escapeRegexpString(query), 'i').test(this.currentLabel) || this.created;
+        if (!this.visible) {
+          this.select.filteredOptionsCount--;
         }
-      },
-
-      resetIndex() {
-        this.$nextTick(() => {
-          this.index = this.parent.options.indexOf(this);
-        });
       }
     },
 
     created() {
-      this.currentLabel = this.currentLabel || ((typeof this.value === 'string' || typeof this.value === 'number') ? this.value : '');
-      this.parent.options.push(this);
-      this.parent.optionsCount++;
-      this.parent.filteredOptionsCount++;
-      this.index = this.parent.options.indexOf(this);
-
-      if (this.currentSelected === true) {
-        this.dispatch('select', 'addOptionToValue', this);
-      }
+      this.select.options.push(this);
+      this.select.cachedOptions.push(this);
+      this.select.optionsCount++;
+      this.select.filteredOptionsCount++;
 
       this.$on('queryChange', this.queryChange);
-      this.$on('disableOptions', this.disableOptions);
-      this.$on('resetIndex', this.resetIndex);
+      this.$on('handleGroupDisabled', this.handleGroupDisabled);
     },
 
     beforeDestroy() {
-      this.dispatch('select', 'onOptionDestroy', this);
+      let index = this.select.cachedOptions.indexOf(this);
+      if (index > -1) {
+        this.select.cachedOptions.splice(index, 1);
+      }
+      this.select.onOptionDestroy(this.select.options.indexOf(this));
     }
   };
 </script>

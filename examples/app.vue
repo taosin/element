@@ -1,85 +1,85 @@
-<style lang="css">
-  @import '../node_modules/highlight.js/styles/color-brewer.css';
-  @import 'assets/styles/common.css';
-  @import 'assets/styles/fonts/style.css';
-
-  html, body {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-  }
-
-  #app {
-    height: 100%;
-  }
-
-  body {
-    font-family: 'Helvetica Neue',Helvetica,'PingFang SC','Hiragino Sans GB','Microsoft YaHei',SimSun,sans-serif;
-    overflow: auto;
-    font-weight: 300;
-  }
-
-  a {
-    color: #4078c0;
-    text-decoration: none;
-  }
-
-  .hljs {
-    padding: 20px 25px;
-    background-color: #f9fafc;
-    margin-bottom: 25px;
-  }
-
-  .main-cnt {
-    margin-top: -80px;
-    padding: 80px 0 120px;
-    box-sizing: border-box;
-    min-height: 100%;
-  }
-
-  .container,
-  .page-container {
-    width: 960px;
-    margin: 0 auto;
-  }
-
-  .page-container {
-    padding-top: 55px;
-
-    h2 {
-      font-size: 28px;
-      color: #1f2d3d;
-      margin: 0;
-    }
-    h3 {
-      font-size: 22px;
-    }
-    h2, h3, h4, h5 {
-      font-weight: normal;
-      color: #1f2f3d;
-    }
-    p {
-      font-size: 14px;
-      color: #5e6d82;
-    }
-  }
-  .demo {
-    margin: 20px 0;
-  }
-</style>
-
 <template>
-  <div id="app">
-    <main-header></main-header>
+  <div id="app" :class="{ 'is-component': isComponent }">
+    <main-header v-if="lang !== 'play'"></main-header>
     <div class="main-cnt">
       <router-view></router-view>
     </div>
-    <main-footer></main-footer>
+    <main-footer v-if="lang !== 'play' && !isComponent"></main-footer>
   </div>
 </template>
 
 <script>
+  import { use } from 'main/locale';
+  import zhLocale from 'main/locale/lang/zh-CN';
+  import enLocale from 'main/locale/lang/en';
+  import esLocale from 'main/locale/lang/es';
+  import frLocale from 'main/locale/lang/fr';
+
+  const lang = location.hash.replace('#', '').split('/')[1] || 'zh-CN';
+  const localize = lang => {
+    switch (lang) {
+      case 'zh-CN':
+        use(zhLocale);
+        break;
+      case 'es':
+        use(esLocale);
+        break;
+      case 'fr-FR':
+        use(frLocale);
+        break;
+      default:
+        use(enLocale);
+    }
+  };
+  localize(lang);
+
   export default {
-    name: 'app'
+    name: 'app',
+
+    computed: {
+      lang() {
+        return this.$route.path.split('/')[1] || 'zh-CN';
+      },
+      isComponent() {
+        return /^component-/.test(this.$route.name || '');
+      }
+    },
+
+    watch: {
+      lang(val) {
+        if (val === 'zh-CN') {
+          this.suggestJump();
+        }
+        localize(val);
+      }
+    },
+
+    methods: {
+      suggestJump() {
+        if (process.env.NODE_ENV !== 'production') return;
+
+        const href = location.href;
+        const preferGithub = localStorage.getItem('PREFER_GITHUB');
+        const cnHref = href.indexOf('eleme.cn') > -1 || href.indexOf('element-cn') > -1 || href.indexOf('element.faas') > -1;
+        if (cnHref || preferGithub) return;
+        setTimeout(() => {
+          if (this.lang !== 'zh-CN') return;
+          this.$confirm('建议大陆用户访问部署在国内的站点，是否跳转？', '提示')
+            .then(() => {
+              location.replace('https://element.eleme.cn');
+            })
+            .catch(() => {
+              localStorage.setItem('PREFER_GITHUB', 'true');
+            });
+        }, 1000);
+      }
+    },
+
+    mounted() {
+      localize(this.lang);
+      if (this.lang === 'zh-CN') {
+        this.suggestJump();
+      }
+    }
   };
 </script>

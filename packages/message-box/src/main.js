@@ -1,15 +1,18 @@
-var CONFIRM_TEXT = '确定';
-var CANCEL_TEXT = '取消';
-
-var defaults = {
-  title: '提示',
+const defaults = {
+  title: null,
   message: '',
   type: '',
+  iconClass: '',
   showInput: false,
   showClose: true,
+  modalFade: true,
+  lockScroll: true,
   closeOnClickModal: true,
+  closeOnPressEscape: true,
+  closeOnHashChange: true,
   inputValue: null,
   inputPlaceholder: '',
+  inputType: 'text',
   inputPattern: null,
   inputValidator: null,
   inputErrorMessage: '',
@@ -18,87 +21,92 @@ var defaults = {
   confirmButtonPosition: 'right',
   confirmButtonHighlight: false,
   cancelButtonHighlight: false,
-  confirmButtonText: CONFIRM_TEXT,
-  cancelButtonText: CANCEL_TEXT,
+  confirmButtonText: '',
+  cancelButtonText: '',
   confirmButtonClass: '',
-  cancelButtonClass: ''
+  cancelButtonClass: '',
+  customClass: '',
+  beforeClose: null,
+  dangerouslyUseHTMLString: false,
+  center: false,
+  roundButton: false,
+  distinguishCancelAndClose: false
 };
 
 import Vue from 'vue';
 import msgboxVue from './main.vue';
+import merge from 'element-ui/src/utils/merge';
+import { isVNode } from 'element-ui/src/utils/vdom';
 
-var merge = function(target) {
-  for (var i = 1, j = arguments.length; i < j; i++) {
-    var source = arguments[i];
-    for (var prop in source) {
-      if (source.hasOwnProperty(prop)) {
-        var value = source[prop];
-        if (value !== undefined) {
-          target[prop] = value;
+const MessageBoxConstructor = Vue.extend(msgboxVue);
+
+let currentMsg, instance;
+let msgQueue = [];
+
+const defaultCallback = action => {
+  if (currentMsg) {
+    let callback = currentMsg.callback;
+    if (typeof callback === 'function') {
+      if (instance.showInput) {
+        callback(instance.inputValue, action);
+      } else {
+        callback(action);
+      }
+    }
+    if (currentMsg.resolve) {
+      if (action === 'confirm') {
+        if (instance.showInput) {
+          currentMsg.resolve({ value: instance.inputValue, action });
+        } else {
+          currentMsg.resolve(action);
         }
+      } else if (currentMsg.reject && (action === 'cancel' || action === 'close')) {
+        currentMsg.reject(action);
       }
     }
   }
-
-  return target;
 };
 
-var MessageBoxConstructor = Vue.extend(msgboxVue);
-
-var currentMsg, instance;
-var msgQueue = [];
-
-var initInstance = function() {
+const initInstance = () => {
   instance = new MessageBoxConstructor({
     el: document.createElement('div')
   });
 
-  instance.callback = function(action) {
-    if (currentMsg) {
-      var callback = currentMsg.callback;
-      if (typeof callback === 'function') {
-        if (instance.showInput) {
-          callback(instance.inputValue, action);
-        } else {
-          callback(action);
-        }
-      }
-      if (currentMsg.resolve) {
-        var $type = currentMsg.options.$type;
-        if ($type === 'confirm' || $type === 'prompt') {
-          if (action === 'confirm') {
-            if (instance.showInput) {
-              currentMsg.resolve({ value: instance.inputValue, action });
-            } else {
-              currentMsg.resolve(action);
-            }
-          } else if (action === 'cancel' && currentMsg.reject) {
-            currentMsg.reject(action);
-          }
-        } else {
-          currentMsg.resolve(action);
-        }
-      }
-    }
-  };
+  instance.callback = defaultCallback;
 };
 
-var showNextMsg = function() {
+const showNextMsg = () => {
   if (!instance) {
     initInstance();
   }
+  instance.action = '';
 
-  if (!instance.value || instance.closeTimer) {
+  if (!instance.visible || instance.closeTimer) {
     if (msgQueue.length > 0) {
       currentMsg = msgQueue.shift();
 
-      var options = currentMsg.options;
-      for (var prop in options) {
+      let options = currentMsg.options;
+      for (let prop in options) {
         if (options.hasOwnProperty(prop)) {
           instance[prop] = options[prop];
         }
       }
-      ['modal', 'showClose', 'closeOnClickModal', 'closeOnPressEscape'].forEach(prop => {
+      if (options.callback === undefined) {
+        instance.callback = defaultCallback;
+      }
+
+      let oldCb = instance.callback;
+      instance.callback = (action, instance) => {
+        oldCb(action, instance);
+        showNextMsg();
+      };
+      if (isVNode(instance.message)) {
+        instance.$slots.default = [instance.message];
+        instance.message = null;
+      } else {
+        delete instance.$slots.default;
+      }
+      ['modal', 'showClose', 'closeOnClickModal', 'closeOnPressEscape', 'closeOnHashChange'].forEach(prop => {
         if (instance[prop] === undefined) {
           instance[prop] = true;
         }
@@ -106,31 +114,29 @@ var showNextMsg = function() {
       document.body.appendChild(instance.$el);
 
       Vue.nextTick(() => {
-        instance.value = true;
+        instance.visible = true;
       });
     }
   }
 };
 
-var MessageBox = function(options, callback) {
-  if (typeof options === 'string') {
+const MessageBox = function(options, callback) {
+  if (Vue.prototype.$isServer) return;
+  if (typeof options === 'string' || isVNode(options)) {
     options = {
-      title: options
+      message: options
     };
-    if (arguments[1]) {
-      options.message = arguments[1];
-    }
-    if (arguments[2]) {
-      options.type = arguments[2];
+    if (typeof arguments[1] === 'string') {
+      options.title = arguments[1];
     }
   } else if (options.callback && !callback) {
     callback = options.callback;
   }
 
   if (typeof Promise !== 'undefined') {
-    return new Promise(function(resolve, reject) { // eslint-disable-line
+    return new Promise((resolve, reject) => { // eslint-disable-line
       msgQueue.push({
-        options: merge({}, defaults, MessageBox.defaults || {}, options),
+        options: merge({}, defaults, MessageBox.defaults, options),
         callback: callback,
         resolve: resolve,
         reject: reject
@@ -140,7 +146,7 @@ var MessageBox = function(options, callback) {
     });
   } else {
     msgQueue.push({
-      options: merge({}, defaults, MessageBox.defaults || {}, options),
+      options: merge({}, defaults, MessageBox.defaults, options),
       callback: callback
     });
 
@@ -148,13 +154,15 @@ var MessageBox = function(options, callback) {
   }
 };
 
-MessageBox.setDefaults = function(defaults) {
+MessageBox.setDefaults = defaults => {
   MessageBox.defaults = defaults;
 };
 
-MessageBox.alert = function(message, title, options) {
+MessageBox.alert = (message, title, options) => {
   if (typeof title === 'object') {
     options = title;
+    title = '';
+  } else if (title === undefined) {
     title = '';
   }
   return MessageBox(merge({
@@ -166,9 +174,11 @@ MessageBox.alert = function(message, title, options) {
   }, options));
 };
 
-MessageBox.confirm = function(message, title, options) {
+MessageBox.confirm = (message, title, options) => {
   if (typeof title === 'object') {
     options = title;
+    title = '';
+  } else if (title === undefined) {
     title = '';
   }
   return MessageBox(merge({
@@ -179,9 +189,11 @@ MessageBox.confirm = function(message, title, options) {
   }, options));
 };
 
-MessageBox.prompt = function(message, title, options) {
+MessageBox.prompt = (message, title, options) => {
   if (typeof title === 'object') {
     options = title;
+    title = '';
+  } else if (title === undefined) {
     title = '';
   }
   return MessageBox(merge({
@@ -193,8 +205,9 @@ MessageBox.prompt = function(message, title, options) {
   }, options));
 };
 
-MessageBox.close = function() {
-  instance.value = false;
+MessageBox.close = () => {
+  instance.doClose();
+  instance.visible = false;
   msgQueue = [];
   currentMsg = null;
 };

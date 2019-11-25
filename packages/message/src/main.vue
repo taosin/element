@@ -1,21 +1,35 @@
 <template>
-  <transition name="el-message-fade">
-    <div class="el-message" v-show="visible" :style="{ top: top ? top + 'px' : 'auto' }" @mouseenter="clearTimer" @mouseleave="startTimer">
-      <i class="el-message__icon" :class="[ typeClass ]"></i>
-      <div class="el-message__group">
-        <p>{{ message }}</p>
-        <div v-if="showClose" class="el-message__closeBtn el-icon-close" @click="handleClose"></div>
-      </div>
+  <transition name="el-message-fade" @after-leave="handleAfterLeave">
+    <div
+      :class="[
+        'el-message',
+        type && !iconClass ? `el-message--${ type }` : '',
+        center ? 'is-center' : '',
+        showClose ? 'is-closable' : '',
+        customClass
+      ]"
+      :style="positionStyle"
+      v-show="visible"
+      @mouseenter="clearTimer"
+      @mouseleave="startTimer"
+      role="alert">
+      <i :class="iconClass" v-if="iconClass"></i>
+      <i :class="typeClass" v-else></i>
+      <slot>
+        <p v-if="!dangerouslyUseHTMLString" class="el-message__content">{{ message }}</p>
+        <p v-else v-html="message" class="el-message__content"></p>
+      </slot>
+      <i v-if="showClose" class="el-message__closeBtn el-icon-close" @click="close"></i>
     </div>
   </transition>
 </template>
 
 <script type="text/babel">
-  let typeMap = {
-    success: 'circle-check',
-    info: 'information',
+  const typeMap = {
+    success: 'success',
+    info: 'info',
     warning: 'warning',
-    error: 'circle-cross'
+    error: 'error'
   };
 
   export default {
@@ -25,17 +39,28 @@
         message: '',
         duration: 3000,
         type: 'info',
+        iconClass: '',
+        customClass: '',
         onClose: null,
         showClose: false,
         closed: false,
-        top: null,
-        timer: null
+        verticalOffset: 20,
+        timer: null,
+        dangerouslyUseHTMLString: false,
+        center: false
       };
     },
 
     computed: {
       typeClass() {
-        return typeMap[this.type] ? `el-icon-${ typeMap[this.type] }` : 'el-icon-information';
+        return this.type && !this.iconClass
+          ? `el-message__icon el-icon-${ typeMap[this.type] }`
+          : '';
+      },
+      positionStyle() {
+        return {
+          'top': `${ this.verticalOffset }px`
+        };
       }
     },
 
@@ -43,19 +68,20 @@
       closed(newVal) {
         if (newVal) {
           this.visible = false;
-          this.$el.addEventListener('transitionend', () => {
-            this.$destroy(true);
-            this.$el.parentNode.removeChild(this.$el);
-          });
         }
       }
     },
 
     methods: {
-      handleClose() {
+      handleAfterLeave() {
+        this.$destroy(true);
+        this.$el.parentNode.removeChild(this.$el);
+      },
+
+      close() {
         this.closed = true;
         if (typeof this.onClose === 'function') {
-          this.onClose();
+          this.onClose(this);
         }
       },
 
@@ -67,15 +93,25 @@
         if (this.duration > 0) {
           this.timer = setTimeout(() => {
             if (!this.closed) {
-              this.handleClose();
+              this.close();
             }
           }, this.duration);
         }
+      },
+      keydown(e) {
+        if (e.keyCode === 27) { // esc关闭消息
+          if (!this.closed) {
+            this.close();
+          }
+        }
       }
     },
-
     mounted() {
       this.startTimer();
+      document.addEventListener('keydown', this.keydown);
+    },
+    beforeDestroy() {
+      document.removeEventListener('keydown', this.keydown);
     }
   };
 </script>

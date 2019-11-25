@@ -1,11 +1,15 @@
 import Vue from 'vue';
-let MessageConstructor = Vue.extend(require('./main.vue'));
+import Main from './main.vue';
+import { PopupManager } from 'element-ui/src/utils/popup';
+import { isVNode } from 'element-ui/src/utils/vdom';
+let MessageConstructor = Vue.extend(Main);
 
 let instance;
 let instances = [];
 let seed = 1;
 
-var Message = function(options) {
+const Message = function(options) {
+  if (Vue.prototype.$isServer) return;
   options = options || {};
   if (typeof options === 'string') {
     options = {
@@ -18,44 +22,64 @@ var Message = function(options) {
   options.onClose = function() {
     Message.close(id, userOnClose);
   };
-
   instance = new MessageConstructor({
     data: options
   });
   instance.id = id;
-  instance.vm = instance.$mount();
-  document.body.appendChild(instance.vm.$el);
-  instance.vm.visible = true;
-  instance.dom = instance.vm.$el;
-
-  let topDist = 0;
-  for (let i = 0, len = instances.length; i < len; i++) {
-    topDist += instances[i].$el.offsetHeight + 20;
+  if (isVNode(instance.message)) {
+    instance.$slots.default = [instance.message];
+    instance.message = null;
   }
-  topDist += 20;
-  instance.top = topDist;
+  instance.$mount();
+  document.body.appendChild(instance.$el);
+  let verticalOffset = options.offset || 20;
+  instances.forEach(item => {
+    verticalOffset += item.$el.offsetHeight + 16;
+  });
+  instance.verticalOffset = verticalOffset;
+  instance.visible = true;
+  instance.$el.style.zIndex = PopupManager.nextZIndex();
   instances.push(instance);
+  return instance;
 };
 
+['success', 'warning', 'info', 'error'].forEach(type => {
+  Message[type] = options => {
+    if (typeof options === 'string') {
+      options = {
+        message: options
+      };
+    }
+    options.type = type;
+    return Message(options);
+  };
+});
+
 Message.close = function(id, userOnClose) {
-  let index;
-  let removedHeight;
-  for (var i = 0, len = instances.length; i < len; i++) {
+  let len = instances.length;
+  let index = -1;
+  for (let i = 0; i < len; i++) {
     if (id === instances[i].id) {
+      index = i;
       if (typeof userOnClose === 'function') {
         userOnClose(instances[i]);
       }
-      index = i;
-      removedHeight = instances[i].dom.offsetHeight;
       instances.splice(i, 1);
       break;
     }
   }
+  if (len <= 1 || index === -1 || index > instances.length - 1) return;
+  const removedHeight = instances[index].$el.offsetHeight;
+  for (let i = index; i < len - 1 ; i++) {
+    let dom = instances[i].$el;
+    dom.style['top'] =
+      parseInt(dom.style['top'], 10) - removedHeight - 16 + 'px';
+  }
+};
 
-  if (len > 1) {
-    for (i = index; i < len - 1 ; i++) {
-      instances[i].dom.style.top = parseInt(instances[i].dom.style.top, 10) - removedHeight - 20 + 'px';
-    }
+Message.closeAll = function() {
+  for (let i = instances.length - 1; i >= 0; i--) {
+    instances[i].close();
   }
 };
 

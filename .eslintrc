@@ -1,9 +1,16 @@
 {
-  "plugins": ['vue'],
-  "extends": 'elemefe',
+  "globals": {
+    "ga": true,
+    "chrome": true
+  },
+  "plugins": ["html", "json"],
+  "extends": "elemefe",
+  "rules": {
+    "no-restricted-globals": ["error", "event", "fdescribe"]
+  },
   "parserOptions": {
+    "ecmaVersion": 6,
     "ecmaFeatures": {
-      "experimentalObjectRestSpread": true,
       "jsx": true
     }
   }
